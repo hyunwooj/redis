@@ -1,4 +1,4 @@
-/* Redis benchmark utility. 
+/* Redis benchmark utility.
  *
  * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
@@ -113,7 +113,10 @@ static struct config {
     pthread_mutex_t is_updating_slots_mutex;
     pthread_mutex_t updating_slots_mutex;
     pthread_mutex_t slots_last_update_mutex;
+    char *file;
 } config;
+
+size_t *keylist; // suffled key list
 
 typedef struct _client {
     redisContext *context;
@@ -354,12 +357,19 @@ static void resetClient(client c) {
 
 static void randomizeClientKey(client c) {
     size_t i;
+    static size_t key_i = 0;
 
     for (i = 0; i < c->randlen; i++) {
         char *p = c->randptr[i]+11;
         size_t r = 0;
-        if (config.randomkeys_keyspacelen != 0)
-            r = random() % config.randomkeys_keyspacelen;
+
+	if (keylist) {
+		r = keylist[key_i];
+		key_i = (key_i+1) % config.requests;
+	} else {
+        	if (config.randomkeys_keyspacelen != 0)
+			r = random() % config.randomkeys_keyspacelen;
+	}
         size_t j;
 
         for (j = 0; j < 12; j++) {
@@ -1364,6 +1374,10 @@ int parseOptions(int argc, const char **argv) {
         } else if (!strcmp(argv[i],"--help")) {
             exit_status = 0;
             goto usage;
+        } else if (!strcmp(argv[i], "-f")) {
+            config.randomkeys = 1;
+            config.file = (char*)zmalloc(sizeof(char)*(strlen(argv[i+1])+1));
+            strcpy(config.file, argv[++i]);
         } else {
             /* Assume the user meant to provide an option when the arg starts
              * with a dash. We're done otherwise and should use the remainder
@@ -1409,6 +1423,7 @@ usage:
 " -t <tests>         Only run the comma separated list of tests. The test\n"
 "                    names are the same as the ones produced as output.\n"
 " -I                 Idle mode. Just open N idle connections and wait.\n\n"
+" -f <keylist>       Read keys from <keylist> to replace __rand_int__.\n\n"
 "Examples:\n\n"
 " Run the benchmark with the default configuration against 127.0.0.1:6379:\n"
 "   $ redis-benchmark\n\n"
@@ -1517,6 +1532,7 @@ int main(int argc, const char **argv) {
     config.is_updating_slots = 0;
     config.slots_last_update = 0;
     config.enable_tracking = 0;
+    config.file = NULL;
 
     i = parseOptions(argc,argv);
     argc -= i;
@@ -1614,6 +1630,16 @@ int main(int argc, const char **argv) {
 
         if (config.redis_config != NULL) freeRedisConfig(config.redis_config);
         return 0;
+    }
+
+    if (config.file) {
+        // read keylist from file
+        FILE *input = fopen(config.file, "r");
+        long k = 0;
+        keylist = (size_t*) zmalloc((config.requests+1)*sizeof(size_t));
+        while (k < config.requests && fscanf(input, "%lu", &keylist[k++]) > 0);
+        config.requests = k - 1;
+        fclose(input);
     }
 
     /* Run default benchmark suite. */
