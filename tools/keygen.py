@@ -1,6 +1,8 @@
 import argparse
 import sys
 import numpy as np
+import multiprocessing as mp
+from itertools import chain
 
 
 def gen_seq(args):
@@ -9,13 +11,21 @@ def gen_seq(args):
 def gen_perm(args):
     return np.random.permutation(args.num_keys)
 
+def gen_uni_task(args):
+    chunk_size = args.num_keys // mp.cpu_count()
+    return [(100 * np.random.randint(args.max_key // 100)
+             + np.random.randint(args.percent))
+            for _ in range(chunk_size)]
+
 def gen_uni(args):
     assert(args.max_key % 100 == 0)
     assert(0 < args.percent <= 100)
-    def sample():
-        return (100 * np.random.randint(args.max_key // 100)
-                + np.random.randint(args.percent))
-    return [sample() for _ in range(args.num_keys)]
+    assert(args.num_keys % mp.cpu_count() == 0)
+
+    with mp.Pool(mp.cpu_count()) as pool:
+        keys_list = pool.map(gen_uni_task, [args for _ in range(mp.cpu_count())])
+
+    return list(chain(*keys_list))
 
 def parse_args():
     parser = argparse.ArgumentParser()
