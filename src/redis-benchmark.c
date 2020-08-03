@@ -71,6 +71,7 @@ static struct config {
     const char *hostsocket;
     int numclients;
     int liveclients;
+    int keynum;
     int requests;
     int requests_issued;
     int requests_finished;
@@ -365,7 +366,7 @@ static void randomizeClientKey(client c) {
 
 	if (keylist) {
 		r = keylist[key_i];
-		key_i = (key_i+1) % config.requests;
+		key_i = (key_i+1) % config.keynum;
 	} else {
         	if (config.randomkeys_keyspacelen != 0)
 			r = random() % config.randomkeys_keyspacelen;
@@ -1638,7 +1639,7 @@ int main(int argc, const char **argv) {
         long k = 0;
         keylist = (size_t*) zmalloc((config.requests+1)*sizeof(size_t));
         while (k < config.requests && fscanf(input, "%lu", &keylist[k++]) > 0);
-        config.requests = k - 1;
+        config.keynum = k - 1;
         fclose(input);
     }
 
