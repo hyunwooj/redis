@@ -14,20 +14,30 @@ def gen_perm(args):
     return np.random.permutation(args.num_keys)
 
 def gen_uni_task(args):
-    chunk_size = args.num_keys // mp.cpu_count()
-    return [(100 * np.random.randint(args.max_key // 100)
+    np.random.seed(None)
+    args, n_reqs = args
+    return [(100 * np.random.randint(args.num_keys // 100)
              + np.random.randint(args.percent))
-            for _ in range(chunk_size)]
+            for _ in range(n_reqs)]
 
 def gen_uni(args):
-    assert(args.max_key % 100 == 0)
+    assert(args.num_keys % 100 == 0)
     assert(0 < args.percent <= 100)
-    assert(args.num_keys % mp.cpu_count() == 0)
 
-    with mp.Pool(mp.cpu_count()) as pool:
-        keys_list = pool.map(gen_uni_task, [args for _ in range(mp.cpu_count())])
+    n_cpus = mp.cpu_count()
+    n_reqs_list = [args.num_reqs // n_cpus + ((args.num_reqs % n_cpus) if i == 0 else 0) for i in range(n_cpus)]
+
+    with mp.Pool(n_cpus) as pool:
+        keys_list = pool.map(gen_uni_task, [(args, n_reqs) for n_reqs in n_reqs_list])
 
     return list(chain(*keys_list))
+
+def gen_zipf_task(args):
+    np.random.seed(None)
+    dist_map, n_reqs = args
+
+    u = np.random.random(n_reqs)
+    return np.searchsorted(dist_map, u) - 1
 
 def gen_zipf(args):
     class ZipfGenerator:
@@ -35,36 +45,42 @@ def gen_zipf(args):
         def __init__(self, n, alpha):
             tmp = np.power(np.arange(1, n+1) , -alpha)
             zeta = np.r_[0, np.cumsum(tmp)]
-            self.dist_map = np.array([x / zeta[-1] for x in zeta])
+            self.dist_map = zeta / zeta[-1]
 
         def next(self, n=1):
             u = np.random.random(n)
             return np.searchsorted(self.dist_map, u) - 1
 
-    zgen = ZipfGenerator(args.max_key, args.skew)
-    return zgen.next(args.num_keys)
+    zgen = ZipfGenerator(args.num_keys, args.skew)
+
+    n_cpus = mp.cpu_count()
+    n_reqs_list = [args.num_reqs // n_cpus + ((args.num_reqs % n_cpus) if i == 0 else 0) for i in range(n_cpus)]
+    with mp.Pool(n_cpus) as pool:
+        keys_list = pool.map(gen_zipf_task, [(zgen.dist_map, n_reqs) for n_reqs in n_reqs_list])
+
+    return list(chain(*keys_list))
 
 def parse_args():
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(help='key pattern')
 
     parser_seq = subparsers.add_parser('seq', help='sequential pattern')
-    parser_seq.add_argument('-n', '--num-keys', type=int, required=True)
+    parser_seq.add_argument('-k', '--num-keys', type=int, required=True)
     parser_seq.set_defaults(generate=gen_seq)
 
     parser_perm = subparsers.add_parser('perm', help='permutation pattern')
-    parser_perm.add_argument('-n', '--num-keys', type=int, required=True)
+    parser_perm.add_argument('-k', '--num-keys', type=int, required=True)
     parser_perm.set_defaults(generate=gen_perm)
 
-    parser_uni = subparsers.add_parser('uni', help='uniform pattern')
-    parser_uni.add_argument('-n', '--num-keys', type=int, required=True)
-    parser_uni.add_argument('-m', '--max-key', type=int, required=True)
+    parser_uni = subparsers.add_parser('unif', help='uniform pattern')
+    parser_uni.add_argument('-k', '--num-keys', type=int, required=True)
+    parser_uni.add_argument('-r', '--num-reqs', type=int, required=True)
     parser_uni.add_argument('-p', '--percent', type=int, required=True)
     parser_uni.set_defaults(generate=gen_uni)
 
     parser_zipf = subparsers.add_parser('zipf', help='zipfian pattern')
-    parser_zipf.add_argument('-n', '--num-keys', type=int, required=True)
-    parser_zipf.add_argument('-m', '--max-key', type=int, required=True)
+    parser_zipf.add_argument('-k', '--num-keys', type=int, required=True)
+    parser_zipf.add_argument('-r', '--num-reqs', type=int, required=True)
     parser_zipf.add_argument('-s', '--skew', type=float, required=True)
     parser_zipf.set_defaults(generate=gen_zipf)
 
@@ -75,7 +91,12 @@ def main():
 
     keys = args.generate(args)
 
-    print(' '.join(map(lambda x: str(x), keys)))
+    for i, key in enumerate(keys):
+        if i == 0:
+            print(key, end='')
+        else:
+            print(' ', key, end='')
+    print()
 
 if __name__ == '__main__':
     main()
