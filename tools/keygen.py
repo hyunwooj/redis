@@ -29,6 +29,21 @@ def gen_uni(args):
 
     return list(chain(*keys_list))
 
+def gen_zipf(args):
+    class ZipfGenerator:
+        # https://stackoverflow.com/questions/31027739/python-custom-zipf-number-generator-performing-poorly
+        def __init__(self, n, alpha):
+            tmp = np.power(np.arange(1, n+1) , -alpha)
+            zeta = np.r_[0, np.cumsum(tmp)]
+            self.dist_map = np.array([x / zeta[-1] for x in zeta])
+
+        def next(self, n=1):
+            u = np.random.random(n)
+            return np.searchsorted(self.dist_map, u) - 1
+
+    zgen = ZipfGenerator(args.max_key, args.skew)
+    return zgen.next(args.num_keys)
+
 def parse_args():
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(help='key pattern')
@@ -46,6 +61,12 @@ def parse_args():
     parser_uni.add_argument('-m', '--max-key', type=int, required=True)
     parser_uni.add_argument('-p', '--percent', type=int, required=True)
     parser_uni.set_defaults(generate=gen_uni)
+
+    parser_zipf = subparsers.add_parser('zipf', help='zipfian pattern')
+    parser_zipf.add_argument('-n', '--num-keys', type=int, required=True)
+    parser_zipf.add_argument('-m', '--max-key', type=int, required=True)
+    parser_zipf.add_argument('-s', '--skew', type=float, required=True)
+    parser_zipf.set_defaults(generate=gen_zipf)
 
     return parser.parse_args()
 
